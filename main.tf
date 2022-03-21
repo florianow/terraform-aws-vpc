@@ -9,6 +9,7 @@ locals {
   azs               = length(var.availability_zones) > 0 ? var.availability_zones : data.aws_availability_zones.main.names
   nat_gateway_count = var.create_nat_gateways ? min(length(local.azs), length(var.public_subnet_cidrs), length(var.private_subnet_cidrs)) : 0
 
+
   internet_gateway_count             = (var.create_internet_gateway && length(var.public_subnet_cidrs) > 0) ? 1 : 0
   egress_only_internet_gateway_count = (var.create_egress_only_internet_gateway && length(var.public_subnet_cidrs) > 0) ? 1 : 0
 }
@@ -23,7 +24,7 @@ resource "aws_vpc" "main" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-vpc"
+      "Name" = "${var.name_prefix}-vpc-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}"
     },
   )
 }
@@ -36,7 +37,7 @@ resource "aws_internet_gateway" "public" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-public-igw"
+      "Name" = "${var.name_prefix}-igw-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}"
     },
   )
 }
@@ -48,25 +49,25 @@ resource "aws_egress_only_internet_gateway" "outbound" {
 }
 
 resource "aws_route_table" "public" {
-  count      = length(var.public_subnet_cidrs) > 0 ? 1 : 0
+  count      = length(var.public_subnet_cidrs)
   depends_on = [aws_vpc.main]
   vpc_id     = aws_vpc.main.id
-
+#TODO ${element(local.azs, count.index)}, name convention to from eu-central-01 to euc1
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-public-rt"
+      "Name" = "${var.name_prefix}-rtb-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-public-${var.account_count_prefix}"
     },
   )
 }
 
 resource "aws_route" "public" {
-  count = local.internet_gateway_count
+  count = length(var.public_subnet_cidrs)
   depends_on = [
     aws_internet_gateway.public,
     aws_route_table.public,
   ]
-  route_table_id         = aws_route_table.public[0].id
+  route_table_id         = element(aws_route_table.public[*].id, count.index)
   gateway_id             = aws_internet_gateway.public[0].id
   destination_cidr_block = "0.0.0.0/0"
 }
@@ -94,7 +95,8 @@ resource "aws_subnet" "public" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-public-subnet-${count.index + 1}"
+    #  "Name" = "${var.name_prefix}-public-subnet-${count.index + 1}"
+      "Name" = "${var.name_prefix}-sn-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-public-${var.account_count_prefix}"
       "Tier" = "Public"
     },
   )
@@ -103,7 +105,7 @@ resource "aws_subnet" "public" {
 resource "aws_route_table_association" "public" {
   count          = length(var.public_subnet_cidrs)
   subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public[0].id
+  route_table_id =  aws_route_table.public[count.index].id
 }
 
 resource "aws_eip" "private" {
@@ -112,7 +114,7 @@ resource "aws_eip" "private" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-nat-gateway-${count.index + 1}"
+      "Name" = "${var.name_prefix}-eip-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${count.index + 1}"
     },
   )
 }
@@ -129,7 +131,35 @@ resource "aws_nat_gateway" "private" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-nat-gateway-${count.index + 1}"
+      "Name" = "${var.name_prefix}-nat-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-${var.account_count_prefix}"
+    },
+  )
+}
+
+resource "aws_eip" "private_single" {
+  count = var.create_single_nat_gateway ? 1 : 0
+  tags = merge(
+    var.tags,
+    {
+      "Name" = "${var.name_prefix}-eip-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${count.index + 1}"
+    },
+  )
+}
+
+#TODO BUG: 4 gateways if create_single_nat_gateway and create_nat_gateways is true
+resource "aws_nat_gateway" "private_single" {
+  depends_on = [
+    aws_internet_gateway.public,
+    aws_eip.private_single,
+  ]
+  count         = var.create_single_nat_gateway ? 1 : 0
+  allocation_id = aws_eip.private_single[0].id
+  subnet_id     = aws_subnet.public[0].id
+
+  tags = merge(
+    var.tags,
+    {
+    "Name" = "${var.name_prefix}-nat-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-${var.account_count_prefix}"
     },
   )
 }
@@ -142,7 +172,7 @@ resource "aws_route_table" "private" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-private-rt-${count.index + 1}"
+    "Name" = "${var.name_prefix}-rtb-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-private-${var.account_count_prefix}"
     },
   )
 }
@@ -155,6 +185,17 @@ resource "aws_route" "private" {
   count                  = local.nat_gateway_count > 0 ? length(var.private_subnet_cidrs) : 0
   route_table_id         = aws_route_table.private[count.index].id
   nat_gateway_id         = element(aws_nat_gateway.private[*].id, count.index)
+  destination_cidr_block = "0.0.0.0/0"
+}
+
+resource "aws_route" "private_single" {
+  depends_on = [
+    aws_nat_gateway.private_single,
+    aws_route_table.private,
+  ]
+  count                  = length(var.private_subnet_cidrs) 
+  route_table_id         = aws_route_table.private[count.index].id
+  nat_gateway_id         = aws_nat_gateway.private_single[0].id
   destination_cidr_block = "0.0.0.0/0"
 }
 
@@ -181,7 +222,7 @@ resource "aws_subnet" "private" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-private-subnet-${count.index + 1}"
+      "Name" = "${var.name_prefix}-sn-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-private-${var.account_count_prefix}"
       "Tier" = "Private"
     },
   )
@@ -202,7 +243,7 @@ resource "aws_vpc_endpoint" "s3" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-s3"
+      "Name" = "${var.name_prefix}-s3endpoint-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-private-${var.account_count_prefix}"
     },
   )
 }
@@ -216,7 +257,7 @@ resource "aws_vpc_endpoint" "dynamodb" {
   tags = merge(
     var.tags,
     {
-      "Name" = "${var.name_prefix}-dynamodb"
+      "Name" = "${var.name_prefix}-s3dynamodb-${var.tower_prefix}-${var.app_prefix}-${var.envtype_prefix}-${var.account_count_prefix}-${element(local.azs, count.index)}-private-${var.account_count_prefix}"
     },
   )
 }

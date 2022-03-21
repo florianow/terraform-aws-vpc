@@ -1,9 +1,40 @@
 # ------------------------------------------------------------------------------
 # Variables
 # ------------------------------------------------------------------------------
+variable "region_prefix" {
+  description = "A prefix used for naming resources."
+  type        = string
+  default = "euc1"
+}
+
 variable "name_prefix" {
   description = "A prefix used for naming resources."
   type        = string
+  default = "CustomerAbbreviation"
+}
+
+variable "tower_prefix" {
+  description = "A prefix used for tower naming resources."
+  type        = string
+  default     = "Tower"
+}
+
+variable "app_prefix" {
+  description = "A prefix used for tower naming resources."
+  type        = string
+  default     = "APPName"
+}
+
+variable "envtype_prefix" {
+  description = "A prefix used for tower naming resources."
+  type        = string
+  default     = "stage"
+}
+
+variable "account_count_prefix" {
+  description = "A prefix used for tower naming resources."
+  type        = string
+  default     = "01"
 }
 
 variable "cidr_block" {
@@ -53,6 +84,12 @@ variable "create_nat_gateways" {
   default     = true
 }
 
+variable "create_single_nat_gateway" {
+  description = "Optionally create single NAT gateway on first private subnet (which cost $) to provide internet connectivity to the private subnet."
+  type        = bool
+  default     = true
+}
+
 variable "create_internet_gateway" {
   description = "Optionaly create an Internet Gateway resource"
   type        = bool
@@ -91,3 +128,5 @@ variable "enable_vpc_endpoints" {
   description = "Enable or disable VPC endpoints"
   default     = true
 }
+
+
